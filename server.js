@@ -218,15 +218,19 @@ const server = http.createServer(async (req, res) => {
       }
       const d = upstream.data; // cn H5 契约：{ title, desc?, cover_url, author, video_path, images:[{path}] }
       const videoCdn = d.video_path ? decodeMediaU(d.video_path) : '';
-      const imageCdns = (d.images || []).map((i) => decodeMediaU(i && i.path)).filter(Boolean);
       const data = {
         title: d.title || '',
         desc: d.desc || d.title || '', // cn 更新后才有 desc（小红书正文）
         cover_url: d.cover_url || '',
         author: d.author || '',
-        video_url: videoCdn, // 原始直链，播放用
+        video_url: videoCdn, // 原始直链，播放用（抖音视频真机一般可直连）
         save_path: videoCdn ? makeSavePath(videoCdn) : '',
-        images: imageCdns.map((u) => ({ url: u, save_path: makeSavePath(u) })),
+        // 图片：真机 <image> 直连小红书原始直链会被 CDN 防盗链拦成黑屏（开发者工具环境宽容所以正常）。
+        // 改走 cn 公网 /api/media 中转 —— cn 已签好名、拉取用移动 UA 且不带 Referer，能绕过防盗链，
+        // 与 H5 图片同一条通道。前端 item.url 字段不变，只是值从直链换成中转链接，透明切换。
+        images: (d.images || [])
+          .filter((i) => i && i.path)
+          .map((i) => ({ url: CN_BASE + i.path, save_path: makeSavePath(decodeMediaU(i.path)) })),
       };
       return jsonRes(res, 200, { code: 200, msg: 'ok', data });
     } catch (e) {
