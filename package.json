@@ -1,0 +1,7 @@
+{
+  "name": "qsy-relay",
+  "version": "1.0.0",
+  "description": "云托管薄代理：转发解析给 cn + 视频转存云存储",
+  "main": "server.js",
+  "scripts": { "start": "node server.js" }
+}
