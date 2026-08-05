@@ -241,7 +241,7 @@ const server = http.createServer(async (req, res) => {
       const day = new Date().toISOString().slice(0, 10);
       const cloudPath = `qsy/${day}/${crypto.randomBytes(6).toString('hex')}`;
       const meta = await fetchJsonPost(`${WX_API_BASE}/tcb/uploadfile`, { env: WX_ENV, path: cloudPath });
-      if (meta.errcode !== 0 || !meta.url) throw new Error(`获取上传链接失败 ${meta.errcode}: ${meta.errmsg}`);
+      if (meta.errcode !== 0 || !meta.url) throw new Error('获取上传链接失败 raw=' + JSON.stringify(meta).slice(0, 300));
       await uploadToCos(
         meta.url,
         { key: cloudPath, Signature: meta.authorization, 'x-cos-security-token': meta.token, 'x-cos-meta-fileid': meta.cos_file_id },
