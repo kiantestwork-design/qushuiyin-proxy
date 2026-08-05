@@ -74,10 +74,10 @@ function jsonRes(res, code, body) {
   res.end(JSON.stringify(body));
 }
 
-function fetchJson(urlStr) {
+function fetchJson(urlStr, extraHeaders = {}) {
   return new Promise((resolve, reject) => {
     const mod = urlStr.startsWith('https') ? https : http;
-    const req = mod.get(urlStr, { headers: { 'User-Agent': MOBILE_UA }, timeout: 20000 }, (r) => {
+    const req = mod.get(urlStr, { headers: { 'User-Agent': MOBILE_UA, ...extraHeaders }, timeout: 20000 }, (r) => {
       let data = '';
       r.on('data', (c) => (data += c));
       r.on('end', () => {
@@ -207,7 +207,12 @@ const server = http.createServer(async (req, res) => {
     if (!shareUrl) return jsonRes(res, 400, { code: 400, msg: '缺少 url 参数' });
     if (rateLimited(rlKey)) return jsonRes(res, 429, { code: 429, msg: '请求太频繁，请稍后再试' });
     try {
-      const upstream = await fetchJson(`${CN_BASE}/api/parse?url=${encodeURIComponent(shareUrl)}`);
+      // 转发 openid 给 cn，让 cn 按用户限流（否则代理这一个出口 IP 会被 cn 整体限死）
+      const openid = req.headers['x-wx-openid'];
+      const upstream = await fetchJson(
+        `${CN_BASE}/api/parse?url=${encodeURIComponent(shareUrl)}`,
+        openid ? { 'X-WX-OPENID': openid } : {}
+      );
       if (upstream.code !== 200 || !upstream.data) {
         return jsonRes(res, 200, { code: 500, msg: upstream.msg || '解析失败' });
       }
