@@ -251,7 +251,9 @@ const server = http.createServer(async (req, res) => {
       const cloudPath = `qsy/${day}/${crypto.randomBytes(6).toString('hex')}`;
       const meta = await fetchJsonPost(`${WX_API_BASE}/tcb/uploadfile`, { env: WX_ENV, path: cloudPath });
       if (meta.errcode !== 0 || !meta.url) {
-        throw new Error('获取上传链接失败：' + (meta.error_message || meta.errmsg || JSON.stringify(meta).slice(0, 150)));
+        // 诊断：把请求地址 / 环境ID / 微信原始返回（含 errcode）打全，定位"URL不在白名单"等
+        console.error('[uploadfile失败]', `${WX_API_BASE}/tcb/uploadfile`, 'WX_ENV=', WX_ENV, 'resp=', JSON.stringify(meta));
+        throw new Error('获取上传链接失败：' + JSON.stringify(meta).slice(0, 200));
       }
       await uploadToCos(
         meta.url,
