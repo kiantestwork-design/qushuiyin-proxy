@@ -16,6 +16,11 @@ const PORT = Number(process.env.PORT || 80); // 微信云托管默认容器端�
 const CN_BASE = process.env.CN_BASE || 'https://qsy-tc.myhkserver88.shop:8443';
 const WX_ENV = process.env.WX_ENV || ''; // 云托管环境 ID（云存储要用）
 const WX_API_BASE = process.env.WX_API_BASE || 'http://api.weixin.qq.com';
+// Plan B：配了 APPID/APPSECRET 就用 access_token 走公网 HTTPS 调 tcb 接口，
+// 绕过云托管「云调用」SafeLink 白名单（就是那个死活配不通的 85107）。
+// 没配则回退到云调用免 token 方式（需微信令牌白名单）。
+const APPID = process.env.APPID || '';
+const APPSECRET = process.env.APPSECRET || '';
 const SECRET = process.env.SECRET;
 if (!SECRET) {
   console.error('缺少环境变量 SECRET');
@@ -116,6 +121,27 @@ function fetchJsonPost(urlStr, bodyObj) {
     req.on('error', reject);
     req.end(payload);
   });
+}
+
+// —— 微信 access_token（Plan B，绕过云调用白名单）——
+let tokenCache = { token: '', exp: 0 };
+async function getAccessToken() {
+  const now = Date.now();
+  if (tokenCache.token && now < tokenCache.exp) return tokenCache.token;
+  const r = await fetchJson(
+    `https://api.weixin.qq.com/cgi-bin/token?grant_type=client_credential&appid=${APPID}&secret=${APPSECRET}`
+  );
+  if (!r.access_token) throw new Error('获取 access_token 失败：' + JSON.stringify(r).slice(0, 150));
+  tokenCache = { token: r.access_token, exp: now + (r.expires_in - 300) * 1000 };
+  return tokenCache.token;
+}
+// 调 tcb 接口：配了 APPSECRET 就用 access_token 公网直连（不需白名单）；否则回退云调用（需白名单）
+async function tcbPost(apiPath, body) {
+  if (APPSECRET) {
+    const token = await getAccessToken();
+    return fetchJsonPost(`https://api.weixin.qq.com${apiPath}?access_token=${token}`, body);
+  }
+  return fetchJsonPost(`${WX_API_BASE}${apiPath}`, body);
 }
 
 // 从 cn 的 /api/media?u=xxx 路径里还原出原始 CDN 直链
@@ -249,7 +275,7 @@ const server = http.createServer(async (req, res) => {
       tmp = await downloadToTmp(realUrl);
       const day = new Date().toISOString().slice(0, 10);
       const cloudPath = `qsy/${day}/${crypto.randomBytes(6).toString('hex')}`;
-      const meta = await fetchJsonPost(`${WX_API_BASE}/tcb/uploadfile`, { env: WX_ENV, path: cloudPath });
+      const meta = await tcbPost('/tcb/uploadfile', { env: WX_ENV, path: cloudPath });
       if (meta.errcode !== 0 || !meta.url) {
         // 诊断：把请求地址 / 环境ID / 微信原始返回（含 errcode）打全，定位"URL不在白名单"等
         console.error('[uploadfile失败]', `${WX_API_BASE}/tcb/uploadfile`, 'WX_ENV=', WX_ENV, 'resp=', JSON.stringify(meta));
@@ -273,7 +299,7 @@ const server = http.createServer(async (req, res) => {
   if (url.pathname === '/api/clean') {
     const fileid = url.searchParams.get('fileid');
     if (WX_ENV && fileid) {
-      fetchJsonPost(`${WX_API_BASE}/tcb/batchdeletefile`, { env: WX_ENV, fileid_list: [fileid] }).catch(() => {});
+      tcbPost('/tcb/batchdeletefile', { env: WX_ENV, fileid_list: [fileid] }).catch(() => {});
     }
     return jsonRes(res, 200, { code: 200, msg: 'ok' });
   }
